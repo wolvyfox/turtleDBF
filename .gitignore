@@ -1,0 +1,49 @@
+# History files
+.Rhistory
+.Rapp.history
+
+# Session Data files
+.RData
+.RDataTmp
+
+# User-specific files
+.Ruserdata
+.Rproj.user/
+
+# Example code in package build process
+*-Ex.R
+
+# Output files from R CMD build
+/*.tar.gz
+/*.zip
+
+# Output files from R CMD check
+/*.Rcheck/
+
+# RStudio files
+.Rproj.user/
+
+# produced by knitr
+*-figure*.png
+*-figure*.pdf
+
+# OAuth2 token files
+.httr-oauth
+
+# knitr and R markdown default cache directories
+*_cache/
+/cache/
+
+# Temporary files created by R to save/restore workspace
+.RTmp
+
+# RStudio files
+.Rproj.user/
+
+# R System Files
+.RData
+.Rhistory
+.Rapp.history
+
+# Generated documentation
+/man/ 
