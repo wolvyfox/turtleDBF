@@ -1,5 +1,5 @@
 Package: turtleDBF
-Title: Read and Translate DBF-IV .dbf Files
+Title: Read dBASE and Visual FoxPro DBF Files
 Version: 0.1.0
 Date: 2025-06-10
 Authors@R: 
@@ -7,14 +7,12 @@ Authors@R:
            family = "Colefax",
            email = "andrew.colefax@des.qld.gov.au",
            role = c("aut", "cre"))
-Description: A package for reading and translating DBF-IV files, specifically 
-    designed for 'turtle data' within Threatened Species Operations of the 
-    Queensland Department of Environment, Tourism and Science and Innovation. 
-    The package provides functions to read DBF files, handle character encoding, 
-    and convert data into R data frames with appropriate data types.
+Description: Reads DBF files used by the Queensland turtle database, including
+    dBASE III-compatible, dBASE Level 7 and Visual FoxPro layouts. Converts
+    text encodings and returns the records as typed R data frames.
 License: MIT + file LICENSE
 URL: https://github.com/wolvyfox/turtleDBF
 BugReports: https://github.com/wolvyfox/turtleDBF/issues
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.2
+RoxygenNote: 7.3.3
