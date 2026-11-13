@@ -2,34 +2,62 @@
 % Please edit documentation in R/read_dbf.R
 \name{read_dbf}
 \alias{read_dbf}
-\title{Read and translate DBF-IV files, tailored for the 'Turtle database'}
+\title{Read a DBF file into a data frame}
 \usage{
-read_dbf(dbf_file, include_deleted_rows = FALSE)
+read_dbf(
+  dbf_file,
+  include_deleted_rows = FALSE,
+  add_deleted_flag = FALSE,
+  encoding = NULL,
+  fallback_encoding = "CP437",
+  timezone = "UTC"
+)
 }
 \arguments{
-\item{dbf_file}{Path to the DBF file to read}
+\item{dbf_file}{Path to a DBF file.}
 
-\item{include_deleted_rows}{Logical. If TRUE, includes rows marked as deleted in the DBF file}
+\item{include_deleted_rows}{Include records marked as deleted in the DBF.}
+
+\item{add_deleted_flag}{Add a logical \code{.deleted} column.}
+
+\item{encoding}{Character encoding for text fields. \code{NULL} uses the DBF
+language-driver byte where recognised.}
+
+\item{fallback_encoding}{Encoding used when the language driver is absent or
+unknown. Defaults to CP437.}
+
+\item{timezone}{Time zone used to display decoded dBASE Level 7 timestamps.}
 }
 \value{
-A data frame containing the DBF file contents with appropriate data types:
-\itemize{
-\item Numeric fields (type 'N') are converted to numeric
-\item Date fields (type 'D') are converted to Date objects
-\item Logical fields (type 'L') are converted to boolean values
-\item Character fields are converted to strings with proper encoding
-}
+A base data frame whose names and basic types follow the DBF header.
+Attributes record the version byte, language driver, encoding, declared
+record count and source path.
 }
 \description{
-This function reads DBF-IV files and converts them into R data frames. It's specifically
-designed for handling turtle data files, with support for character encoding conversion
-and proper data type casting.
+Read a DBF file into a data frame
+}
+\details{
+The reader recognises version bytes \code{0x03} and \code{0x83} (dBASE III+
+compatible), \code{0x04} and \code{0x8C} (dBASE Level 7), and \code{0x30}
+(Visual FoxPro). It supports character, numeric, floating-point, date,
+logical and Level 7 timestamp fields. Memo fields return the stored
+pointer for text-based memo fields. The reader does not open memo sidecar
+files or decode specialised Visual FoxPro binary field types.
+
+Deleted records are omitted by default. Missing or unrecognised logical
+values become \code{NA}. If a file ends before the declared record count, the
+reader warns and returns the complete records it found.
+
+The record block is loaded into memory. Field offsets are used to extract
+and convert a whole column at a time.
 }
 \examples{
-# Read a DBF file
+\dontrun{
 data <- read_dbf("path/to/your/file.dbf")
-
-# Read a DBF file including deleted rows
-data <- read_dbf("path/to/your/file.dbf", include_deleted_rows = TRUE)
-
+data_with_deleted <- read_dbf(
+  "path/to/your/file.dbf",
+  include_deleted_rows = TRUE,
+  add_deleted_flag = TRUE
+)
+}
 }

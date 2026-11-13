@@ -1,6 +1,6 @@
 # turtleDBF
 
-An R package for reading and translating DBF-IV files, specifically designed for turtle data within Threatened Species Operations of the Queensland Department of Environment, Tourism and Science and Innovation.
+An R package for reading DBF files from the Queensland turtle database into typed data frames.
 
 ## Installation
 
@@ -18,7 +18,7 @@ remotes::install_github("wolvyfox/turtleDBF")
 
 ## Usage
 
-The package provides a single main function `read_dbf()` that reads the DBF-IV files and returns a data frame:
+The package provides one main function, `read_dbf()`.
 
 ```r
 library(turtleDBF)
@@ -30,16 +30,27 @@ library(turtleDBF)
 # Read a DBF file
 data <- read_dbf("path/to/your/file.dbf")
 
-# Read a DBF file including deleted rows
-data_with_deleted <- read_dbf("path/to/your/file.dbf", include_deleted_rows = TRUE)
+# Include deleted records and identify them in a logical .deleted column
+data_with_deleted <- read_dbf(
+  "path/to/your/file.dbf",
+  include_deleted_rows = TRUE,
+  add_deleted_flag = TRUE
+)
 ```
 
-## Features
+## Supported files
 
-- Reads DBF files and converts them to R data frames
-- Automatically detects and converts field types (numeric, date, logical, character)
-- Option to include or exclude deleted rows
-- Handles character encoding (CP437 to UTF-8)
+| Layout | Version bytes |
+| --- | --- |
+| dBASE III compatible | `0x03`, `0x83` |
+| dBASE Level 7 | `0x04`, `0x8C` |
+| Visual FoxPro | `0x30` |
+
+The reader uses the header's language driver where recognised, with CP437
+as the default fallback. Pass `encoding` if you know the file uses another
+encoding. It converts standard text, numeric, date and logical fields as
+well as dBASE Level 7 timestamps. Memo sidecars and specialised Visual
+FoxPro binary fields are outside its scope.
 
 ## License
 
