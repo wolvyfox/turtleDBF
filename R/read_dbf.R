@@ -1,28 +1,11 @@
-# A DBF stores a header followed by fixed-width records (rows).
-# The header tells us where the records begin, how long each record is and
-# how many the file declares. It also describes each field (column) by name,
-# type and width. Every record starts with a deletion marker.
-#
-# A raw byte holds a value from 0 to 255. R prints raw bytes in hexadecimal.
-# For example, 31 means 0x31 (49 in decimal). In an ASCII text field, that
-# byte stands for the character "1". The DBF layout tells us how to interpret
-# each byte. Field widths count bytes, so a character that takes more than
-# one byte in the file's encoding uses more than one position.
-
-
 # Header helpers ---------------------------------------------------------------
 
-# Multi-byte header numbers are stored in little-endian order. The first
-# byte counts ones, the next counts 256s and the next counts 256^2s.
-# For example, 02 01 represents 2 * 256^0 + 1 * 256^1 = 258.
 dbf_little_endian <- function(bytes) {
   sum(as.integer(bytes) * 256^(seq_along(bytes) - 1))
 }
 
 
-# A field name occupies a fixed slot in its descriptor. The first 00 byte
-# (NUL) ends the name. For example, 41 4C 49 00 00 represents "ALI" with
-# padding. Keep printable ASCII bytes from the name.
+# Descriptor text is NUL-terminated. Keep printable ASCII bytes.
 dbf_header_text <- function(bytes) {
   values <- as.integer(bytes)
   first_zero <- match(0L, values)
@@ -36,10 +19,6 @@ dbf_header_text <- function(bytes) {
 }
 
 
-# The language driver is a header code for the file's text encoding.
-# For example, driver 3 selects Windows-1252. A zero or unrecognised code
-# uses the fallback. An explicit encoding supplied by the caller takes
-# precedence over this lookup.
 dbf_encoding_from_driver <- function(driver_id, fallback = "CP437") {
   known_encodings <- c(
     `1` = "CP437",
@@ -55,25 +34,19 @@ dbf_encoding_from_driver <- function(driver_id, fallback = "CP437") {
 }
 
 
-# Read the header and return the layout that read_dbf() needs to locate and
-# interpret the record bytes.
 dbf_read_structure <- function(
     connection,
     dbf_file,
     encoding,
     fallback_encoding
 ) {
-  # The supported layouts share these first 32 bytes. Reading them as raw
-  # leaves each byte available for interpretation according to its position.
+  # The supported layouts share the first 32 bytes of the header.
   fixed_header <- readBin(connection, what = "raw", n = 32L)
 
   if (length(fixed_header) < 32L) {
     stop("The file is too short to contain a DBF header.")
   }
 
-  # A file offset counts how many bytes to skip from the start of the file.
-  # The first byte has offset 0 and is at R index 1. A value of 04 here
-  # becomes the integer 4, which matches the hexadecimal constant 0x04.
   version_byte <- as.integer(fixed_header[1])
   supported_versions <- c(0x03, 0x83, 0x04, 0x8C, 0x30)
 
@@ -84,20 +57,14 @@ dbf_read_structure <- function(
     )
   }
 
-  # These are R indices. For instance, bytes 9 and 10 (file offsets 8
-  # and 9) together store the header length.
   number_of_records <- dbf_little_endian(fixed_header[5:8])
   header_length <- dbf_little_endian(fixed_header[9:10])
   record_length <- dbf_little_endian(fixed_header[11:12])
   language_driver_id <- as.integer(fixed_header[30])
 
-  # Each field descriptor is a block of metadata for one column.
-  # Layout                 First descriptor offset   Bytes per descriptor
-  # dBASE III / FoxPro                           32                     32
-  # dBASE Level 7                                68                     48
-  # Level 7 has 36 extra bytes before its first descriptor (32 + 36 = 68).
-  # A descriptor can use 48 header bytes to describe a field that takes
-  # only 4 bytes in each record.
+  # Level 7 adds 36 header bytes before its 48-byte field descriptors.
+  # The other supported layouts use 32-byte descriptors at offset 32.
+  # Descriptor offsets are zero-based file positions.
   level_7 <- version_byte %in% c(0x04, 0x8C)
   descriptor_start <- if (level_7) 68L else 32L
   descriptor_size <- if (level_7) 48L else 32L
@@ -118,10 +85,8 @@ dbf_read_structure <- function(
     stop("The complete DBF header could not be read.")
   }
 
-  # Two 32-byte descriptors start at offsets 32 and 64. The field list
-  # then ends with a 0D byte at offset 96. Check for that marker only
-  # where another descriptor could start. A 0D inside a descriptor can
-  # have another meaning, such as a field width of 13 bytes.
+  # Check for 0x0D only at descriptor boundaries. Within a descriptor,
+  # the same byte can represent a field width of 13.
   possible_offsets <- seq(
     from = descriptor_start,
     to = header_length - 1L,
@@ -140,8 +105,6 @@ dbf_read_structure <- function(
   ]
 
   field_rows <- lapply(field_offsets, function(offset) {
-    # Convert the file offset to an R index. The name, type and width
-    # then sit at different positions within each descriptor layout.
     descriptor <- header_bytes[(offset + 1L):(offset + descriptor_size)]
 
     if (level_7) {
@@ -166,8 +129,7 @@ dbf_read_structure <- function(
   if (length(field_rows) > 0L) {
     fields <- do.call(rbind, field_rows)
   } else if (number_of_records == 0L && record_length == 1L) {
-    # A descriptor terminator immediately after the fixed header can
-    # describe an empty table with no columns.
+    # Accept a descriptor-free header for an empty table.
     fields <- data.frame(
       name = character(),
       type = character(),
@@ -179,7 +141,7 @@ dbf_read_structure <- function(
     stop("The DBF header contains no field descriptors.")
   }
 
-  # The first byte of each record holds the deletion marker.
+  # Record width includes the one-byte deletion marker.
   calculated_record_length <- 1L + sum(fields$width)
 
   if (calculated_record_length != record_length) {
@@ -223,7 +185,6 @@ dbf_empty_column <- function(field_type, timezone) {
 }
 
 
-# A DBF with no active records should still return correctly typed columns.
 dbf_empty_result <- function(fields, timezone, add_deleted_flag) {
   columns <- Map(
     dbf_empty_column,
@@ -244,12 +205,10 @@ dbf_empty_result <- function(fields, timezone, add_deleted_flag) {
 }
 
 
-# A Level 7 timestamp stores a day number and milliseconds since midnight
-# as two four-byte binary integers. Zero bytes inside these integers are
-# meaningful, so use the original record bytes.
+# Level 7 timestamps store the Julian day and milliseconds since midnight
+# as two little-endian 32-bit integers.
 dbf_decode_timestamp <- function(data_raw, starts, timezone) {
-  # Add offsets 0 through 7 to each timestamp start. Each matrix column
-  # then holds the eight original bytes for one record.
+  # Each matrix column contains one record's timestamp bytes.
   byte_indices <- outer(0:7, starts, `+`)
   bytes <- matrix(as.integer(data_raw[byte_indices]), nrow = 8L)
 
@@ -259,9 +218,7 @@ dbf_decode_timestamp <- function(data_raw, starts, timezone) {
   valid <- julian_day >= 1721426 & julian_day <= 5373484 &
     milliseconds >= 0 & milliseconds < 86400000
 
-  # Julian day 2440588 is 1970-01-01, the POSIXct origin used below.
-  # A timestamp on that day with 1000 milliseconds becomes one second
-  # after the origin. Invalid day or time values stay NA.
+  # Julian day 2440588 is the Unix epoch (1970-01-01).
   seconds <- rep(NA_real_, length(julian_day))
   seconds[valid] <- (julian_day[valid] - 2440588) * 86400 +
     milliseconds[valid] / 1000
@@ -270,7 +227,6 @@ dbf_decode_timestamp <- function(data_raw, starts, timezone) {
 }
 
 
-# Decode one fixed-width field for every retained record.
 dbf_decode_field <- function(
     field,
     field_start,
@@ -280,65 +236,46 @@ dbf_decode_field <- function(
     encoding,
     timezone
 ) {
-  # Worked example with two records of 8 bytes each. The header describes
-  # NAME as a 3-byte character field and LENGTH as a 4-byte numeric field.
-  #
-  #                    Marker   NAME       LENGTH
-  # Record 1 (hex)     20       41 4C 49   31 32 2E 35
-  # Record 2 (hex)     20       42 4F 42   20 39 2E 30
-  # NAME reads as "ALI" and "BOB". LENGTH reads as "12.5" and " 9.0".
-  #
-  # record_starts is c(0, 8), measured from the start of the record block.
-  # LENGTH starts at R position 5 within either record (after the marker
-  # and NAME). Adding 5 to c(0, 8) gives c(5, 13) in the record block.
+  # Add the one-based field position to each zero-based record offset.
   starts <- record_starts + field_start
 
   if (field$type == "@") {
     return(dbf_decode_timestamp(data_raw, starts, timezone))
   }
 
-  # For LENGTH, the start positions are c(5, 13) and the inclusive end
-  # positions are c(8, 16). One substring() call extracts both values.
-  # The same call can take a vector of positions for thousands of rows.
   values <- substring(
     record_text,
     first = starts,
     last = starts + field$width - 1L
   )
 
-  # Decode using the file's encoding before trimming the padding.
-  # iconv() drops bytes it cannot convert, so trimws() receives valid text.
+  # Transcode before trimming so trimws() receives valid UTF-8.
   values <- iconv(values, from = encoding, to = "UTF-8", sub = "")
   values <- trimws(values)
 
-  # C is ordinary text. In a text-based memo field (M), these bytes
-  # identify a memo in a separate file. Return the stored pointer.
+  # Text-based memo fields return the stored pointer.
   if (field$type %in% c("C", "M")) {
     return(values)
   }
 
   values[values == ""] <- NA_character_
 
-  # Numeric fields store text digits. In the LENGTH example, trimming
-  # gives c("12.5", "9.0") and as.numeric() gives c(12.5, 9).
   if (field$type %in% c("N", "F")) {
     return(suppressWarnings(as.numeric(values)))
   }
 
   if (field$type == "D") {
-    # A date such as "20261113" has year, month and day in that order.
     return(suppressWarnings(as.Date(values, format = "%Y%m%d")))
   }
 
   if (field$type == "L") {
-    # Y/T and N/F become TRUE and FALSE. Blank or unknown values stay NA.
     logical_value <- rep(NA, length(values))
     logical_value[toupper(values) %in% c("Y", "T")] <- TRUE
     logical_value[toupper(values) %in% c("N", "F")] <- FALSE
     return(logical_value)
   }
 
-  # Use a text fallback for fields without a type-specific decoder.
+  # Fall back to text for fields without a dedicated decoder.
   values
 }
 
@@ -404,8 +341,6 @@ read_dbf <- function(
     timezone = "UTC"
 ) {
   dbf_file <- normalizePath(dbf_file, winslash = "/", mustWork = TRUE)
-  # "rb" opens the file for reading in binary mode. readBin() can then
-  # read the bytes used for both header metadata and field values.
   connection <- file(dbf_file, open = "rb")
   on.exit(close(connection), add = TRUE)
 
@@ -429,9 +364,8 @@ read_dbf <- function(
     return(empty_result())
   }
 
-  # Skip exactly the declared number of header bytes to reach the records.
-  # Some layouts have extra information after the descriptor terminator.
-  # For example, two 8-byte records ask readBin() for 16 bytes.
+  # Some layouts have metadata after the descriptor terminator.
+  # Use the declared header length to locate the first record.
   seek(connection, where = structure$header_length, origin = "start")
   data_raw <- readBin(
     connection,
@@ -439,8 +373,6 @@ read_dbf <- function(
     n = structure$number_of_records * structure$record_length
   )
 
-  # If only 14 bytes arrive for two 8-byte records, there is one complete
-  # record. Warn and discard the six bytes from the incomplete record.
   complete_records <- floor(length(data_raw) / structure$record_length)
 
   if (complete_records < structure$number_of_records) {
@@ -459,46 +391,34 @@ read_dbf <- function(
     return(empty_result())
   }
 
-  # Record starts are offsets within data_raw. With 8-byte records the
-  # offsets are 0, 8, 16, and so on. Add one for R indices 1, 9, 17.
-  # A 0x20 (space) marks an active record. A 0x2A (asterisk) marks deletion.
+  # Record offsets are relative to data_raw. Deleted rows start with 0x2A.
   record_starts <- (seq_len(complete_records) - 1L) *
     structure$record_length
   deleted <- data_raw[record_starts + 1L] == as.raw(0x2A)
   keep <- include_deleted_rows | !deleted
 
-  # Apply the same filter to the offsets and flags so the optional
-  # .deleted column stays aligned with the rows we decode.
   record_starts <- record_starts[keep]
   deleted <- deleted[keep]
 
-  # Deleted records are normal DBF behaviour. If every record is deleted, the
-  # usual result is simply a correctly typed data frame with zero rows.
   if (length(record_starts) == 0L) {
     return(empty_result())
   }
 
-  # rawToChar() needs a NUL-free buffer for a single string. Replacing
-  # each NUL with one space preserves every position in the text copy.
-  # Keep the original bytes for timestamps. Mark the text copy as "bytes"
-  # so substring() counts bytes before iconv() converts fields to UTF-8.
+  # Replace NULs one-for-one so rawToChar() can build a string with the
+  # same byte offsets. Slice by byte position before transcoding and keep
+  # the original bytes for binary timestamps.
   text_raw <- data_raw
   text_raw[text_raw == as.raw(0x00)] <- as.raw(0x20)
   record_text <- rawToChar(text_raw)
   Encoding(record_text) <- "bytes"
 
-  # The deletion marker takes position 1 within a record. Field starts
-  # are 2 plus the widths of the preceding fields. In the worked example,
-  # NAME starts at 2 and LENGTH starts at 2 + 3 = 5.
+  # One-based field positions start at 2, after the deletion marker.
   field_starts <- 2L + c(
     0L,
     utils::head(cumsum(structure$fields$width), -1L)
   )
 
-  # lapply() visits each field once. The original reader called its
-  # extraction and conversion code for each cell in nested R loops.
-  # Here each call works on a column's vector of values. R still processes
-  # each value internally, with fewer calls from the reader's R code.
+  # Decode one field across all retained rows to avoid per-cell R calls.
   columns <- lapply(seq_len(nrow(structure$fields)), function(index) {
     dbf_decode_field(
       field = structure$fields[index, , drop = FALSE],
